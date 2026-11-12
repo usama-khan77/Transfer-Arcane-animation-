@@ -12,6 +12,11 @@ import android.widget.Toast;
 import java.util.ArrayList;
 
 public class MainActivity extends Activity {
+    static {
+    System.loadLibrary("native-lib");
+}
+
+public native String getEngineStatus();
 
     private final ArrayList<Uri> selectedImages = new ArrayList<>();
     private TextView status;
@@ -64,7 +69,7 @@ public class MainActivity extends Activity {
             if (selectedImages.isEmpty()) {
                 Toast.makeText(this, "Choose photos first", Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Transformation engine is not connected yet.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, getEngineStatus(), Toast.LENGTH_LONG).show();
             }
         });
 
