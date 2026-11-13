@@ -1,0 +1,85 @@
+name: Build Sana Android ARM64 Integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-sana:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout AI Animation Studio
+        uses: actions/checkout@v4
+
+      - name: Checkout official Alibaba MNN source
+        uses: actions/checkout@v4
+        with:
+          repository: alibaba/MNN
+          ref: master
+          path: mnn
+          submodules: recursive
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android NDK and CMake
+        run: |
+          sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Build MNN for Android ARM64
+        working-directory: mnn/project/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build_64
+          cd build_64
+          ../build_64.sh "-DMNN_BUILD_LLM=ON -DMNN_BUILD_LLM_OMNI=ON -DMNN_BUILD_AUDIO=ON -DLLM_SUPPORT_AUDIO=ON -DLLM_SUPPORT_VISION=ON -DMNN_BUILD_DIFFUSION=ON -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_OPENCL=ON -DMNN_SEP_BUILD=OFF -DMNN_BUILD_SHARED_LIBS=ON -DMNN_BUILD_TEST=OFF -DMNN_BUILD_BENCHMARK=OFF -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384"
+          test -s libMNN.so
+
+      - name: Copy official Sana JNI and session sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="mnn/apps/Android/MnnLlmChat/app/src/main/cpp"
+          DST="app/src/main/cpp"
+          mkdir -p "$DST/third_party/nlohmann"
+          cp "$SRC/sana_jni.cpp" "$DST/sana_jni.cpp"
+          cp "$SRC/sana_session.cpp" "$DST/sana_session.cpp"
+          cp "$SRC/sana_session.h" "$DST/sana_session.h"
+          cp "$SRC/mls_log.h" "$DST/mls_log.h"
+          cp "$SRC/third_party/nlohmann/json.hpp" "$DST/third_party/nlohmann/json.hpp"
+          sed -i 's/Java_com_alibaba_mnnllm_android_llm_SanaSession_/Java_com_usama_aianimationstudio_SanaEngine_/g' "$DST/sana_jni.cpp"
+          sed -i '1i #include <chrono>' "$DST/sana_jni.cpp"
+
+      - name: Package MNN runtime for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp mnn/project/android/build_64/libMNN.so app/src/main/jniLibs/arm64-v8a/libMNN.so
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build Android debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon assembleDebug
+
+      - name: Upload integration APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Animation-Studio-Sana-Integration-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
