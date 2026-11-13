@@ -1,0 +1,61 @@
+
+name: Build MNN Android ARM64 Runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-mnn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout AI Animation Studio
+        uses: actions/checkout@v4
+
+      - name: Checkout MNN source
+        uses: actions/checkout@v4
+        with:
+          repository: alibaba/MNN
+          ref: master
+          path: mnn
+          submodules: recursive
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android NDK and CMake
+        run: |
+          sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Build MNN for Android ARM64
+        working-directory: mnn/project/android
+        run: |
+          mkdir -p build_64
+          cd build_64
+          ../build_64.sh "-DMNN_BUILD_LLM=ON -DLLM_SUPPORT_VISION=ON -DMNN_BUILD_DIFFUSION=ON -DMNN_LOW_MEMORY=ON -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_OPENCL=ON -DMNN_SEP_BUILD=OFF -DMNN_BUILD_TEST=OFF -DMNN_BUILD_BENCHMARK=OFF -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384"
+
+      - name: Collect ARM64 shared libraries
+        if: success()
+        run: |
+          mkdir -p mnn-runtime/arm64-v8a
+          find mnn/project/android/build_64 -type f -name "*.so" -exec cp -v {} mnn-runtime/arm64-v8a/ \;
+          count=$(find mnn-runtime/arm64-v8a -type f -name "*.so" | wc -l)
+          echo "Collected shared libraries: $count"
+          test "$count" -gt 0
+
+      - name: Upload MNN ARM64 runtime
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MNN-Android-ARM64-Runtime
+          path: mnn-runtime/
+          if-no-files-found: error
+          retention-days: 7
+          
